@@ -2,6 +2,9 @@ const line = require("@line/bot-sdk");
 const express = require("express");
 const app = express();
 const {Configuration, OpenAIApi} = require("openai");
+const fs = require("fs");
+const https = require("https");
+const logger = require('morgan');
 require("dotenv").config();
 
 const client = new line.Client({
@@ -16,7 +19,7 @@ const configuration = new Configuration({
 const openai = new OpenAIApi(configuration);
 
 // use GPT3.5 chatAPI create chat
-async function generateChatResponse(message){
+async function generateChatResponse(message) {
     try {
         console.log(`user: ${message}`);
         const completion = await openai.createChatCompletion({
@@ -32,37 +35,47 @@ async function generateChatResponse(message){
     }
 };
 
+app.use(logger('dev'));
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 
 // post user's message to get chat response
-app.post("/", async (req, res) => {
+app.post("/chatbot", async (req, res) => {
     try {
         console.log(JSON.stringify(req.body));
+        if(req.body.events.length === 0) {
+            return res.status(200).json({});
+        }
         let eventType = req.body.events[0].type;
-        if(eventType === "follow") {
+        if (eventType === "follow") {
             let replyToken = req.body.events[0].replyToken;
-            await client.replyMessage(replyToken, {type:"text",text: `Hi 很高興您加我好友！ \n我是一個聊天機器人，傳送任何文字訊息開始聊天吧～`});
-            return res.status(200);
+            await client.replyMessage(replyToken, {
+                type: "text",
+                text: `Hi 很高興您加我好友！ \n我是一個聊天機器人，傳送任何文字訊息開始聊天吧～`
+            });
+            return res.status(200).json({});
         }
         let messageType = req.body.events[0].message.type;
-        if(messageType !== "text") {
+        if (messageType !== "text") {
             let replyToken = req.body.events[0].replyToken;
-            await client.replyMessage(replyToken, {type:"text",text: "抱歉，我只能處理文字訊息"});
-            return res.status(200);
+            await client.replyMessage(replyToken, {type: "text", text: "抱歉，我只能處理文字訊息"});
+            return res.status(200).json({});
         }
         let message = req.body.events[0].message.text;
         let result = await generateChatResponse(message);
         let replyToken = req.body.events[0].replyToken;
-        await client.replyMessage(replyToken, {type:"text",text: result.content});
-        return res.status(200);
+        await client.replyMessage(replyToken, {type: "text", text: result.content});
+        return res.status(200).json({});
     } catch (e) {
         console.log('error');
-        // console.error(e);
-        return res.status(400);
+        return res.status(400).json({});
     }
 });
 
-app.listen(8000, () => {
+https.createServer({
+    ca: fs.readFileSync("./auth/keys/ca_bundle.crt"),
+    key: fs.readFileSync("./auth/keys/private.key"),
+    cert: fs.readFileSync("./auth/keys/certificate.crt")
+}, app).listen(8000, () => {
     console.log("Server is running on port 8000");
-});
+})
